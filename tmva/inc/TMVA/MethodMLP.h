@@ -115,7 +115,7 @@ namespace TMVA {
       Double_t ComputeEstimator ( std::vector<Double_t>& parameters );
       Double_t EstimatorFunction( std::vector<Double_t>& parameters );
 
-      enum ETrainingMethod { kBP=0, kBFGS, kGA };
+      enum ETrainingMethod { kBP=0, kBFGS, kGA, kSARP };
       enum EBPTrainingMode { kSequential=0, kBatch };
 
       bool     HasInverseHessian() { return fCalculateErrors; }
@@ -158,6 +158,13 @@ namespace TMVA {
       Double_t GetError();
       Double_t GetMSEErr( const Event* ev, UInt_t index = 0 );   //zjh
       Double_t GetCEErr( const Event* ev, UInt_t index = 0 );   //zjh
+
+      // SARProp functions
+      void     SARPropMinimize(Int_t nEpochs);
+      void     SARPropTrainOneEpoch(Int_t iEpoch);
+      void     SARPropDecayWeights(Int_t iEpoch);
+      Double_t SARPropGetEventError(const Event* ev);
+      void     SARPropAdjustSynapseWeights(Int_t iEpoch);
 
       // backpropagation functions
       void     BackPropagationMinimize( Int_t nEpochs );
@@ -210,6 +217,17 @@ namespace TMVA {
       Double_t        fLastAlpha;      // line search variable
       Double_t        fTau;            // line search variable
       Int_t           fResetStep;      // reset time (how often we clear hessian matrix)
+
+      // SARPROP variables
+      Double_t        fEtaMinus;         // step decrement on gradient sign change
+      Double_t        fEtaPlus;          // step increment otherwise
+      Double_t        fDeltaMin;         // minimum step size
+      Double_t        fDeltaMax;         // maximum step size
+                                         // note that fLearnRate is the initial step size
+      Double_t        fCoolingSpeed;     // Speed of the temperature term decreasing.
+      Double_t        fWeightDecayCoeff; // weight decay strength constant
+      Double_t        fErrorThreshold;   // constant for local minimum detection
+      Double_t        fErrorStepCoeff;   // noise strength constant
 
       // backpropagation variable
       Double_t        fLearnRate;      // learning rate for synapse weight adjustments

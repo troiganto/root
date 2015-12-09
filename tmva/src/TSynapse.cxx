@@ -47,6 +47,7 @@ TMVA::TSynapse::TSynapse()
    : fWeight( 0 ),
      fLearnRate( 0 ),
      fDelta( 0 ),
+     fPrevDelta( 0 ),
      fDEDw( 0 ),
      fCount( 0 ),
      fPreNeuron( NULL ),
@@ -107,4 +108,41 @@ void TMVA::TSynapse::CalculateDelta()
    // calculate/adjust the error field for this synapse
    fDelta += fPostNeuron->GetDelta() * fPreNeuron->GetActivationValue();
    fCount++;
+}
+
+//______________________________________________________________________________
+void TMVA::TSynapse::SARPropDecayWeights(Double_t decayFactor)
+{
+   // SARProp adds a term to the error function that penalizes large weights.
+   // E_SARProp(w_ij) = E(w_ij) + 0.5 * k_1 * log(w_ij^2+1) * T
+   // w_ij is the current weight,
+   // E is the original error function,
+   // k_1 is an arbitrary factor, chosen to be 0.01,
+   // T is the Temperature, T = 2^(-lambda*i_Epoch) with the cooling speed lambda,
+   // i_Epoch is the index of the current epoch.
+   //
+   // This weight decay term is honored by adding its gradient
+   // `k_1 * w_ij/(1+w_ij^2) * 2^(-lambda*i_Epoch)`
+   // to the synapse Delta.
+   //
+   // The parameter `decayFactor` contains the term `k_1 * 2^(-T*i_Epoch)`
+   // and has to be passed from outside.
+
+   // Also note that we have to multiply by fCount so that the original
+   // Delta and the weight decay term have the same order of magnitude.
+   fDelta += fCount * decayFactor * fWeight/(1+fWeight*fWeight);
+}
+
+//______________________________________________________________________________
+void TMVA::TSynapse::SARPropAdjustWeight()
+{
+   // Adjust weights according to delta, but only use its sign, not the
+   // magnitude.
+   if      (fDelta > 0.0) { fWeight -= fLearnRate; }
+   else if (fDelta < 0.0) { fWeight += fLearnRate; }
+   else                   { }
+   if      (fWeight >  150.) { fWeight =  150.; }
+   else if (fWeight < -150.) { fWeight = -150.; }
+   fPrevDelta = fDelta;
+   InitDelta();
 }

@@ -84,8 +84,11 @@ TMVA::MethodMLP::MethodMLP( const TString& jobName,
      fTrainingMethod(kBFGS), fTrainMethodS("BFGS"),
      fSamplingFraction(1.0), fSamplingEpoch(0.0), fSamplingWeight(0.0),
      fSamplingTraining(false), fSamplingTesting(false),
-     fLastAlpha(0.0), fTau(0.),
-     fResetStep(0), fLearnRate(0.0), fDecayRate(0.0),
+     fLastAlpha(0.0), fTau(0.), fResetStep(0),
+     fEtaMinus(0.0), fEtaPlus(0.0), fDeltaMin(0.0),
+     fDeltaMax(0.0), fCoolingSpeed(0.0),
+     fWeightDecayCoeff(0.0), fErrorThreshold(0.0), fErrorStepCoeff(0.0),
+     fLearnRate(0.0), fDecayRate(0.0),
      fBPMode(kSequential), fBpModeS("None"),
      fBatchSize(0), fTestRate(0), fEpochMon(false),
      fGA_nsteps(0), fGA_preCalc(0), fGA_SC_steps(0),
@@ -106,8 +109,11 @@ TMVA::MethodMLP::MethodMLP( DataSetInfo& theData,
      fTrainingMethod(kBFGS), fTrainMethodS("BFGS"),
      fSamplingFraction(1.0), fSamplingEpoch(0.0), fSamplingWeight(0.0),
      fSamplingTraining(false), fSamplingTesting(false),
-     fLastAlpha(0.0), fTau(0.),
-     fResetStep(0), fLearnRate(0.0), fDecayRate(0.0),
+     fLastAlpha(0.0), fTau(0.), fResetStep(0),
+     fEtaMinus(0.0), fEtaPlus(0.0), fDeltaMin(0.0),
+     fDeltaMax(0.0), fCoolingSpeed(0.0),
+     fWeightDecayCoeff(0.0), fErrorThreshold(0.0), fErrorStepCoeff(0.0),
+     fLearnRate(0.0), fDecayRate(0.0),
      fBPMode(kSequential), fBpModeS("None"),
      fBatchSize(0), fTestRate(0), fEpochMon(false),
      fGA_nsteps(0), fGA_preCalc(0), fGA_SC_steps(0),
@@ -173,6 +179,7 @@ void TMVA::MethodMLP::DeclareOptions()
    AddPreDefVal(TString("BP"));
    AddPreDefVal(TString("GA"));
    AddPreDefVal(TString("BFGS"));
+   AddPreDefVal(TString("SARP"));
 
    DeclareOptionRef(fLearnRate=0.02,    "LearningRate",    "ANN learning rate parameter");
    DeclareOptionRef(fDecayRate=0.01,    "DecayRate",       "Decay rate for learning parameter");
@@ -188,6 +195,15 @@ void TMVA::MethodMLP::DeclareOptions()
 
    DeclareOptionRef(fResetStep=50,   "ResetStep",    "How often BFGS should reset history");
    DeclareOptionRef(fTau      =3.0,  "Tau",          "LineSearch \"size step\"");
+
+   DeclareOptionRef(fEtaMinus   =0.5,  "EtaMinus",    "SARProp: Learning rate decrement on gradient sign change");
+   DeclareOptionRef(fEtaPlus    =1.2,  "EtaPlus",     "SARProp: Learning rate increment on lack of gradient sign change");
+   DeclareOptionRef(fDeltaMin   =1e-6, "MinLearnRate",    "SARProp: Minimum learning rate");
+   DeclareOptionRef(fDeltaMax   =50,   "MaxLearnRate",    "SARProp: Maximum learning rate");
+   DeclareOptionRef(fWeightDecayCoeff=0.01, "WeightDecayStrength",   "SARProp: Strength of the weight decay term");
+   DeclareOptionRef(fErrorThreshold  =0.4,  "ErrorStepThreshold", "SARProp: mininum step size below which to add noise");
+   DeclareOptionRef(fErrorStepCoeff  =0.8,  "ErrorStepSize",     "SARProp: Strength of the noise term");
+   DeclareOptionRef(fCoolingSpeed=0.01, "CoolingSpeed", "How quickly to decrease the influence of SARPROP weight decay and statistical noise");
 
    DeclareOptionRef(fBpModeS="sequential", "BPMode",
                     "Back-propagation learning mode: sequential or batch");
@@ -232,9 +248,23 @@ void TMVA::MethodMLP::ProcessOptions()
    if      (fTrainMethodS == "BP"  ) fTrainingMethod = kBP;
    else if (fTrainMethodS == "BFGS") fTrainingMethod = kBFGS;
    else if (fTrainMethodS == "GA"  ) fTrainingMethod = kGA;
+   else if (fTrainMethodS == "SARP") fTrainingMethod = kSARP;
 
    if      (fBpModeS == "sequential") fBPMode = kSequential;
    else if (fBpModeS == "batch")      fBPMode = kBatch;
+
+   if (fTrainingMethod == kSARP && fBPMode == kSequential) {
+      // If we set BPMode=batch, we can re-use some member functions
+      // written for the Backpropagation algorithm.
+      Log() << kINFO << "SARProp: Forcing BPMode to \"batch\"" << Endl;
+      fBPMode = kBatch;
+      fBpModeS = "batch";
+   }
+   if (fTrainingMethod == kSARP && fBatchSize != -1) {
+      // SARProp always takes the full sample as its batch.
+      Log() << kINFO << "SARProp: Ignoring BatchSize parameter" << Endl;
+      fBatchSize = -1;
+   }
 
    //   InitializeLearningRates();
 
@@ -427,6 +457,7 @@ void TMVA::MethodMLP::Train(Int_t nEpochs)
 #else
    if (fTrainingMethod == kGA)        GeneticMinimize();
    else if (fTrainingMethod == kBFGS) BFGSMinimize(nEpochs);
+   else if (fTrainingMethod == kSARP) SARPropMinimize(nEpochs);
    else                               BackPropagationMinimize(nEpochs);
 #endif
 
@@ -973,6 +1004,192 @@ Double_t TMVA::MethodMLP::GetCEErr( const Event* ev, UInt_t index )  //zjh
    error = -(target*TMath::Log(output)+(1-target)*TMath::Log(1-output));
 
    return error;
+}
+
+//______________________________________________________________________________
+void TMVA::MethodMLP::SARPropMinimize(Int_t nEpochs)
+{
+   // minimize estimator / train network with SARProp algorithm
+   // Blatantly copied from BackPropagationMinimize
+
+   //    Timer timer( nEpochs, GetName() );
+   Timer timer( (fSteps>0?100:nEpochs), GetName() );
+   Int_t lateEpoch = (Int_t)(nEpochs*0.95) - 1;
+
+   // create histograms for overtraining monitoring
+   Int_t nbinTest = Int_t(nEpochs/fTestRate);
+   fEstimatorHistTrain = new TH1F( "estimatorHistTrain", "training estimator",
+                                   nbinTest, Int_t(fTestRate/2), nbinTest*fTestRate+Int_t(fTestRate/2) );
+   fEstimatorHistTest  = new TH1F( "estimatorHistTest", "test estimator",
+                                   nbinTest, Int_t(fTestRate/2), nbinTest*fTestRate+Int_t(fTestRate/2) );
+
+   if(fSamplingTraining || fSamplingTesting)
+      Data()->InitSampling(1.0,1.0,fRandomSeed); // initialize sampling to initialize the random generator with the given seed
+
+   if (fSteps > 0) Log() << kINFO << "Inaccurate progress timing for MLP... " << Endl;
+   timer.DrawProgressBar(0);
+
+   // estimators
+   Double_t trainE = -1;
+   Double_t testE  = -1;
+
+   // start training cycles (epochs)
+   for (Int_t i = 0; i < nEpochs; i++) {
+
+      if (Float_t(i)/nEpochs < fSamplingEpoch) {
+         if ((i+1)%fTestRate == 0 || (i == 0)) {
+            if (fSamplingTraining) {
+               Data()->SetCurrentType( Types::kTraining );
+               Data()->InitSampling(fSamplingFraction,fSamplingWeight);
+               Data()->CreateSampling();
+            }
+            if (fSamplingTesting) {
+               Data()->SetCurrentType( Types::kTesting );
+               Data()->InitSampling(fSamplingFraction,fSamplingWeight);
+               Data()->CreateSampling();
+            }
+         }
+      }
+      else {
+         Data()->SetCurrentType( Types::kTraining );
+         Data()->InitSampling(1.0,1.0);
+         Data()->SetCurrentType( Types::kTesting );
+         Data()->InitSampling(1.0,1.0);
+      }
+      Data()->SetCurrentType( Types::kTraining );
+
+      SARPropTrainOneEpoch(i);
+
+      // monitor convergence of training and control sample
+      if ((i+1)%fTestRate == 0) {
+         trainE = CalculateEstimator( Types::kTraining, i ); // estimator for training sample
+         testE  = CalculateEstimator( Types::kTesting,  i ); // estimator for test samplea
+         if (!TMath::Finite(trainE)) {
+            Log() << kFATAL << "Training set estimator diverged!" << Endl;
+         }
+         else if (!TMath::Finite(testE)) {
+            Log() << kFATAL << "Test set estimator diverged!" << Endl;
+         }
+         fEstimatorHistTrain->Fill( i+1, trainE );
+         fEstimatorHistTest ->Fill( i+1, testE );
+
+         Bool_t success = kFALSE;
+         if ((testE < GetCurrentValue()) || (GetCurrentValue()<1e-100)) {
+            success = kTRUE;
+         }
+         Data()->EventResult( success );
+
+         SetCurrentValue( testE );
+         if (HasConverged()) {
+            if (Float_t(i)/nEpochs < fSamplingEpoch) {
+               Int_t newEpoch = Int_t(fSamplingEpoch*nEpochs);
+               i = newEpoch;
+               ResetConvergenceCounter();
+            }
+            else {
+               if (lateEpoch > i) lateEpoch = i;
+               else                break;
+            }
+         }
+      }
+
+      // draw progress bar (add convergence value)
+      TString convText = Form( "<D^2> (train/test): %.4g/%.4g", trainE, testE );
+      if (fSteps > 0) {
+         Float_t progress = 0;
+         if (Float_t(i)/nEpochs < fSamplingEpoch)
+            progress = Progress()*fSamplingEpoch*fSamplingFraction*100;
+         else
+            progress = 100*(fSamplingEpoch*fSamplingFraction+(1.0-fSamplingFraction*fSamplingEpoch)*Progress());
+
+         timer.DrawProgressBar( Int_t(progress), convText );
+      }
+      else {
+         timer.DrawProgressBar( i, convText );
+      }
+   }
+}
+
+//______________________________________________________________________________
+void TMVA::MethodMLP::SARPropTrainOneEpoch(Int_t iEpoch)
+{
+   Int_t nEvents = Data()->GetNEvents();
+
+   // randomize the order events will be presented, important for sequential mode
+   Int_t* index = new Int_t[nEvents];
+   for (Int_t i = 0; i < nEvents; i++) index[i] = i;
+   Shuffle(index, nEvents);
+
+   // loop over all training events
+   for (Int_t i = 0; i < nEvents; i++) {
+      const Event * ev = GetEvent(index[i]);
+      if ((ev->GetWeight() < 0) && IgnoreEventsWithNegWeightsInTraining()
+          &&  (Data()->GetCurrentType() == Types::kTraining)){
+         continue;
+      }
+      // Call member function of Backpropagation algorithm to get dE/dw.
+      TrainOneEvent(index[i]);
+   }
+   // Do adjustments after handling all events.
+   SARPropDecayWeights(iEpoch);
+   SARPropAdjustSynapseWeights(iEpoch);
+   if (fgPRINT_BATCH) {
+      PrintNetwork();
+      WaitForKeyboard();
+   }
+
+   delete[] index;
+}
+
+//______________________________________________________________________________
+void TMVA::MethodMLP::SARPropDecayWeights(Int_t iEpoch)
+{
+   // See TSynapse::SARPropDecayWeights for a thorough discussion of
+   // this function.
+   const Double_t temperature = TMath::Power(2, -fCoolingSpeed*iEpoch);
+   const Double_t decayFactor = fWeightDecayCoeff * temperature;
+   // ... and pass it to each synapse's decay function.
+   for (Int_t i=0; i<fSynapses->GetEntriesFast(); ++i) {
+      static_cast<TSynapse*>(fSynapses->At(i))->SARPropDecayWeights(decayFactor);
+   }
+}
+
+//______________________________________________________________________________
+void TMVA::MethodMLP::SARPropAdjustSynapseWeights(Int_t iEpoch)
+{
+   const Int_t nSynapses = fSynapses->GetEntriesFast();
+   for (Int_t i=0;i<nSynapses;i++) {
+      TSynapse *synapse = (TSynapse*)fSynapses->At(i);
+      const Float_t signChange = synapse->GetPrevDelta() * synapse->GetDelta();
+      if (signChange > 0) {
+         // Same-sign delta, increase learning rate.
+         synapse->SetLearningRate(synapse->GetLearningRate()*fEtaPlus);
+         if (synapse->GetLearningRate() > fDeltaMax) {
+            synapse->SetLearningRate(fDeltaMax);
+         }
+         synapse->SARPropAdjustWeight();
+      } else if (signChange < 0) {
+         // Sign change in delta, decrease learning rate.
+         const Double_t tempSquared = TMath::Power(2, -2*fCoolingSpeed*iEpoch);
+         const Double_t absThreshold = fErrorThreshold*tempSquared;
+         if (synapse->GetLearningRate() < absThreshold) {
+            const Double_t noise = frgen->Rndm() * fErrorStepCoeff * tempSquared;
+            synapse->SetLearningRate(synapse->GetLearningRate()*fEtaMinus + noise);
+         }
+         else {
+            synapse->SetLearningRate(synapse->GetLearningRate()*fEtaMinus);
+         }
+         if (synapse->GetLearningRate() < fDeltaMin) {
+            synapse->SetLearningRate(fDeltaMin);
+         }
+         // Postpone weight update to the next epoch.
+         synapse->SetPrevDelta(0.0);
+         synapse->InitDelta();
+      } else { // signChange == 0
+         // After sign change and at the beginning.
+         synapse->SARPropAdjustWeight();
+      }
+   }
 }
 
 //______________________________________________________________________________

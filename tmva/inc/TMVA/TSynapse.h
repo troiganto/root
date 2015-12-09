@@ -85,6 +85,12 @@ namespace TMVA {
       // calulcate the error field of the synapse
       void CalculateDelta();
 
+      // Add a weight decay term to the synapse's delta.
+      void SARPropDecayWeights(Double_t decayFactor);
+
+      // Adjust weight according to SARProp algorithm.
+      void SARPropAdjustWeight();
+
       // initialize the error field of the synpase to 0
       void InitDelta()           { fDelta = 0.0; fCount = 0; }
 
@@ -92,11 +98,15 @@ namespace TMVA {
       Double_t GetDEDw()                       { return fDEDw;           }
       Double_t GetDelta()                      { return fDelta;          }
 
+      void SetPrevDelta(Double_t PrevDelta)    { fPrevDelta = PrevDelta; }
+      Double_t GetPrevDelta()                  { return fPrevDelta;      }
+
    private:
 
       Double_t fWeight;            // weight of the synapse
       Double_t fLearnRate;         // learning rate parameter
       Double_t fDelta;             // local error field
+      Double_t fPrevDelta;         // SARProp: error of the previous epoch.
       Double_t fDEDw;              // sum of deltas
       Int_t    fCount;             // number of updates contributing to error field
       TNeuron* fPreNeuron;         // pointer to pre-neuron
