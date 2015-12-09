@@ -1184,7 +1184,9 @@ void TMVA::MethodMLP::TrainOneEventFast(Int_t ievt, Float_t*& branchVar, Int_t& 
    }
 
    ForceNetworkCalculations();
-   UpdateNetwork(desired, eventWeight);
+   SetOutputLayerError(desired, eventWeight);
+   CalculateNeuronDeltas();
+   UpdateSynapses();
 }
 
 //______________________________________________________________________________
@@ -1202,9 +1204,11 @@ void TMVA::MethodMLP::TrainOneEvent(Int_t ievt)
    Double_t eventWeight = ev->GetWeight();
    ForceNetworkInputs( ev );
    ForceNetworkCalculations();
-   if (DoRegression()) UpdateNetwork( ev->GetTargets(),       eventWeight );
-   if (DoMulticlass()) UpdateNetwork( *DataInfo().GetTargetsForMulticlass( ev ), eventWeight );
-   else                UpdateNetwork( GetDesiredOutput( ev ), eventWeight );
+   if (DoRegression()) SetOutputLayerError( ev->GetTargets(),       eventWeight );
+   if (DoMulticlass()) SetOutputLayerError( *DataInfo().GetTargetsForMulticlass( ev ), eventWeight );
+   else                SetOutputLayerError( GetDesiredOutput( ev ), eventWeight );
+   CalculateNeuronDeltas();
+   UpdateSynapses();
 }
 
 //______________________________________________________________________________
@@ -1216,9 +1220,9 @@ Double_t TMVA::MethodMLP::GetDesiredOutput( const Event* ev )
 
 
 //______________________________________________________________________________
-void TMVA::MethodMLP::UpdateNetwork(Double_t desired, Double_t eventWeight)
+void TMVA::MethodMLP::SetOutputLayerError(Double_t desired, Double_t eventWeight)
 {
-   // update the network based on how closely
+   // update the output neuron's error based on how closely
    // the output matched the desired output
    Double_t error = GetOutputNeuron()->GetActivationValue() - desired;
    if (fEstimator==kMSE)  error = GetOutputNeuron()->GetActivationValue() - desired ;  //zjh
@@ -1226,22 +1230,18 @@ void TMVA::MethodMLP::UpdateNetwork(Double_t desired, Double_t eventWeight)
    else  Log() << kFATAL << "Estimator type unspecified!!" << Endl;              //zjh
    error *= eventWeight;
    GetOutputNeuron()->SetError(error);
-   CalculateNeuronDeltas();
-   UpdateSynapses();
 }
 
 //______________________________________________________________________________
-void TMVA::MethodMLP::UpdateNetwork(const std::vector<Float_t>& desired, Double_t eventWeight)
+void TMVA::MethodMLP::SetOutputLayerError(const std::vector<Float_t>& desired, Double_t eventWeight)
 {
-   // update the network based on how closely
+   // update the output neurons' errors based on how closely
    // the output matched the desired output
    for (UInt_t i = 0, iEnd = desired.size(); i < iEnd; ++i) {
       Double_t error = GetOutputNeuron( i )->GetActivationValue() - desired.at(i);
       error *= eventWeight;
       GetOutputNeuron( i )->SetError(error);
    }
-   CalculateNeuronDeltas();
-   UpdateSynapses();
 }
 
 

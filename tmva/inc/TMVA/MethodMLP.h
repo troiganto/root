@@ -166,8 +166,8 @@ namespace TMVA {
       void     DecaySynapseWeights(Bool_t lateEpoch );
       void     TrainOneEvent( Int_t ievt);
       Double_t GetDesiredOutput( const Event* ev );
-      void     UpdateNetwork( Double_t desired, Double_t eventWeight=1.0 );
-      void     UpdateNetwork(const std::vector<Float_t>& desired, Double_t eventWeight=1.0);
+      void     SetOutputLayerError( Double_t desired, Double_t eventWeight=1.0 );
+      void     SetOutputLayerError(const std::vector<Float_t>& desired, Double_t eventWeight=1.0);
       void     CalculateNeuronDeltas();
       void     UpdateSynapses();
       void     AdjustSynapseWeights();
