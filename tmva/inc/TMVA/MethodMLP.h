@@ -177,7 +177,7 @@ namespace TMVA {
 
       // genetic algorithm functions
       void GeneticMinimize();
-      
+
 
 #ifdef MethodMLP_UseMinuit__
       // minuit functions -- commented out because they rely on a static pointer
@@ -219,7 +219,7 @@ namespace TMVA {
       Int_t           fBatchSize;      // batch size, only matters if in batch learning mode
       Int_t           fTestRate;       // test for overtraining performed at each #th epochs
       Bool_t          fEpochMon;       // create and fill epoch-wise monitoring histograms (makes outputfile big!)
-      
+
       // genetic algorithm variables
       Int_t           fGA_nsteps;      // GA settings: number of steps
       Int_t           fGA_preCalc;     // GA settings: number of pre-calc steps

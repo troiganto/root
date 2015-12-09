@@ -1,5 +1,5 @@
 // @(#)root/tmva $Id$
-// Author: Matt Jachowski 
+// Author: Matt Jachowski
 
 /**********************************************************************************
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
@@ -19,7 +19,7 @@
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
  * (http://tmva.sourceforge.net/LICENSE)                                          *
- **********************************************************************************/ 
+ **********************************************************************************/
 
 #ifndef ROOT_TMVA_TSynapse
 #define ROOT_TMVA_TSynapse
@@ -48,10 +48,10 @@ namespace TMVA {
    class TSynapse : public TObject {
 
    public:
-    
+
       TSynapse();
       virtual ~TSynapse();
-     
+
       // set the weight of the synapse
       void SetWeight(Double_t weight);
 
@@ -93,7 +93,7 @@ namespace TMVA {
       Double_t GetDelta()                      { return fDelta;          }
 
    private:
-  
+
       Double_t fWeight;            // weight of the synapse
       Double_t fLearnRate;         // learning rate parameter
       Double_t fDelta;             // local error field
@@ -103,7 +103,7 @@ namespace TMVA {
       TNeuron* fPostNeuron;        // pointer to post-neuron
 
       static MsgLogger* fgLogger;                     //! message logger, static to save resources
-      MsgLogger& Log() const { return *fgLogger; }                       
+      MsgLogger& Log() const { return *fgLogger; }
 
       ClassDef(TSynapse,0) // Synapse class used by MethodANNBase and derivatives
    };
